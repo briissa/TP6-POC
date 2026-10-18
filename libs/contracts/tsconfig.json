@@ -1,0 +1,25 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "declaration": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}
+
+
+//Este archivo (tsconfig.json) configura cómo TypeScript compila el código de la biblioteca contracts. No contiene lógica de la aplicación: indica las reglas y el destino de la compilación.
+
+//target: "ES2022": genera JavaScript compatible con ES2022.
+//module: "commonjs": usa el formato de módulos CommonJS.
+//declaration: true: genera archivos .d.ts con los tipos públicos.
+//rootDir: "src" y outDir: "dist": toma el código desde src y coloca el resultado en dist.
+//strict: true: activa comprobaciones estrictas de tipos para detectar más errores.
+//esModuleInterop: true: facilita la interoperabilidad con módulos CommonJS.
+//skipLibCheck: true: omite la comprobación de tipos de archivos de declaración de dependencias.
+//include: ["src"]: indica que compile los archivos dentro de src.
