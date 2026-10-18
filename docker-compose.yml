@@ -1,0 +1,113 @@
+# Define los contenedores que componen el entorno local de la aplicacion.
+# YAML no admite anotaciones de tipos ni comentarios de bloque; se documenta con "#".
+services:
+  kafka:
+    # Broker Kafka en modo KRaft: un unico nodo actua como broker y controller.
+    image: apache/kafka:3.9.0
+    container_name: kafka
+    ports:
+      # Expone el listener externo para clientes que se conectan desde el host.
+      - "9092:9092"
+    environment:
+      # Identificador y roles del nodo; KRaft evita necesitar un servicio ZooKeeper.
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      # Listener interno para otros contenedores, externo para el host y de control.
+      KAFKA_LISTENERS: INTERNAL://:19092,EXTERNAL://:9092,CONTROLLER://:9093
+      # Direcciones que Kafka anuncia a los clientes segun desde donde se conecten.
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:19092,EXTERNAL://localhost:9092
+      # En este entorno local, los tres listeners usan conexiones sin cifrado.
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      # Usa el listener interno para la comunicacion entre brokers.
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # Quorum de controllers: el nodo 1 se encuentra en kafka:9093.
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      # Factores de replicacion para un cluster local de un solo nodo.
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      # Desactiva la creacion automatica de topics para evitar errores de nombre.
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+    healthcheck:
+      # Considera Kafka saludable cuando responde a una consulta de versiones.
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:19092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+  kafka-init:
+    # Tarea de inicializacion: espera a Kafka y crea los topics de la aplicacion.
+    image: apache/kafka:3.9.0
+    container_name: kafka-init
+    depends_on:
+      kafka:
+        # No comienza hasta que el broker haya superado su healthcheck.
+        condition: service_healthy
+    # Se ejecuta una vez y no se reinicia al terminar.
+    restart: "no"
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        # Crea cada topic principal y su cola de mensajes fallidos (DLQ).
+        # Cada topic tiene 3 particiones, replica unica y retencion de 7 dias.
+        for t in activation.requested billing.events provisioning.events activation.events; do
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists \
+            --topic $$t --partitions 3 --replication-factor 1 --config retention.ms=604800000
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:19092 --create --if-not-exists \
+            --topic $$t.dlq --partitions 3 --replication-factor 1 --config retention.ms=604800000
+        done
+        echo "Topics creados"
+
+  kafka-ui:
+    # Interfaz web para inspeccionar y administrar el cluster Kafka local.
+    image: ghcr.io/kafbat/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      # Abre la interfaz en http://localhost:8080.
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      # La UI usa el listener interno de Kafka, accesible dentro de la red Compose.
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:19092
+
+  postgres:
+    # Base de datos PostgreSQL para el entorno de desarrollo local.
+    image: postgres:16
+    container_name: postgres
+    ports:
+      # Expone PostgreSQL en el puerto estandar del host.
+      - "5432:5432"
+    environment:
+      # Credenciales y base iniciales; adecuadas solo para desarrollo local.
+      POSTGRES_USER: poc
+      POSTGRES_PASSWORD: poc
+      POSTGRES_DB: postgres
+    volumes:
+      # Ejecuta el SQL de inicializacion al crear por primera vez el directorio de datos.
+      - ./docker/postgres-init.sql:/docker-entrypoint-initdb.d/init.sql
+      # Conserva los datos de PostgreSQL aunque se reemplace el contenedor.
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Comprueba que PostgreSQL acepta conexiones con el usuario configurado.
+      test: ["CMD-SHELL", "pg_isready -U poc"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  mailhog:
+    # Servidor SMTP de pruebas que captura correos sin enviarlos a destinatarios reales.
+    image: mailhog/mailhog
+    container_name: mailhog
+    ports:
+      # Puerto SMTP para la aplicacion y panel web para revisar los mensajes capturados.
+      - "1025:1025"
+      - "8025:8025"
+
+volumes:
+  # Volumen persistente usado por el directorio de datos de PostgreSQL.
+  pgdata:
