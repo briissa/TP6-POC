@@ -80,8 +80,7 @@ services:
     image: postgres:16
     container_name: postgres
     ports:
-      # Expone PostgreSQL en el puerto estandar del host.
-      - "5432:5432"
+      - "5433:5432"
     environment:
       # Credenciales y base iniciales; adecuadas solo para desarrollo local.
       POSTGRES_USER: poc
